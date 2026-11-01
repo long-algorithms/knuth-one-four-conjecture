@@ -98,12 +98,7 @@ on an Intel Xeon Phi system.** Its reported wall time was `921m44.615s`
 (15 h 21 min 44.615 s). Thus the run reported discovering
 all positive integers below 419,916,105 within that particular search.
 
-This is the largest first-undiscovered value in the preserved historical run
-logs, **not** a value proved unreachable, an upper bound on generated integers,
-or a rigorously certified coverage result. The original program has known
-concurrency races and numerical rounding limitations, and `maxout.txt` does
-not record a complete configuration. The contemporary solver begins from 4;
-see the exact equivalence below.
+This run used the original, uncertified and unformalized implementation.
 
 ## Origin and the starting integer
 
