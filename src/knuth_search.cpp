@@ -21,7 +21,7 @@
 namespace {
 using knuth::u64;
 struct Options {
-    u64 bound = UINT64_C(1000000000000000);
+    u64 bound = UINT64_C(100000000);
     u64 seed = 4;
     unsigned bitmap_log2 = 24;
     unsigned threads = 1;
@@ -45,7 +45,7 @@ void usage() {
     std::cout <<
         "Usage: knuth_search [options]\n"
         "  --seed N          Starting integer (default 4; 3 reproduces older searches)\n"
-        "  --bound N         Inclusive candidate ceiling, 1..UINT64_MAX (default 10^15)\n"
+        "  --bound N         Inclusive candidate ceiling, 1..UINT64_MAX (default 10^8)\n"
         "  --threads N       Worker count, 1..1024 (default 1)\n"
         "  --bitmap-log2 N   Bitmap address bits, 6..40 (default 24; 32 uses 512 MiB)\n"
         "  --batch-size N    Maximum tasks per queue operation, 1..4096 (default 64)\n"
