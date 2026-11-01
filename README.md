@@ -18,7 +18,15 @@ Python 3 is required when building tests. GNU/Linux is the supported baseline.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-./build/knuth_search --bound 1000000000 --threads 4
+./build/knuth_search
+```
+
+The default command runs a short exploratory search from 4, with an inclusive
+ceiling of `10^8` and one worker. Increase `--bound` and `--threads` explicitly
+for a longer search, for example:
+
+```sh
+./build/knuth_search --bound 10000000000 --threads 16
 ```
 
 For a machine-specific build, add `-DKNUTH_ARCH=native` at configuration time.
@@ -37,7 +45,7 @@ retains its upstream BSD-2-Clause/Boost licensing.
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `--seed N` | `4` | Starting integer; `3` supports historical comparisons |
-| `--bound N` | `1000000000000000` | Inclusive ceiling for generated integer states; accepts positive `uint64_t` values |
+| `--bound N` | `100000000` | Inclusive ceiling for generated integer states; accepts positive `uint64_t` values |
 | `--threads N` | `1` | Worker count, 1–1024 |
 | `--bitmap-log2 N` | `24` | Address bits for the dense visited bitmap, 6–40 |
 | `--batch-size N` | `64` | Maximum dequeued jobs per batch, 1–4096 |
@@ -80,6 +88,21 @@ See [implementation notes](docs/implementation-notes.md) for invariants,
 limitations, and further algorithmic work, and [benchmarks](benchmarks/README.md)
 for measurements and a repeatable scaling script. Your original implementation
 and output files remain unchanged under `historical/concurrent-quad/`.
+
+## Largest recorded historical run
+
+The original [`maxout.txt`](historical/concurrent-quad/maxout.txt) records
+**419,916,105** as the **first integer not discovered** by the historical
+concurrent quad-precision search, starting from 3. Its reported wall time was
+`921m44.615s` (15 h 21 min 44.615 s). Thus the run reported discovering
+all positive integers below 419,916,105 within that particular search.
+
+This is the largest first-undiscovered value in the preserved historical run
+logs, **not** a value proved unreachable, an upper bound on generated integers,
+or a rigorously certified coverage result. The original program has known
+concurrency races and numerical rounding limitations, and `maxout.txt` does
+not record a complete configuration. The contemporary solver begins from 4;
+see the exact equivalence below.
 
 ## Origin and the starting integer
 
