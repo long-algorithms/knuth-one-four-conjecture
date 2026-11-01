@@ -2,6 +2,8 @@ name: Build and test
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -13,3 +15,15 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Retain validation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ github.sha }}
+          retention-days: 7
+          path: |
+            build/knuth_search
+            build/_deps/concurrentqueue-src/concurrentqueue.h
+            build/_deps/concurrentqueue-src/CMakeLists.txt
+            build/_deps/concurrentqueue-src/concurrentqueueConfig.cmake.in
+            build/_deps/concurrentqueue-src/LICENSE.md
+            build/Testing/Temporary/LastTest.log
