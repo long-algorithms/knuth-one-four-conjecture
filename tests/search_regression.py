@@ -69,6 +69,13 @@ def main():
                 actual = run(seed, bound, config, path)
                 assert actual == expected, (seed, bound, config, actual ^ expected)
         assert run(None, 6, configs[0], path) == {1, 2, 4}, 'default seed or sqrt closure'
+        # A no-argument invocation must remain a quick, bounded smoke run.
+        default = fields(subprocess.check_output([EXE], text=True, timeout=30))
+        explicit = fields(subprocess.check_output([EXE, '--bound', '100000000'],
+                                                   text=True, timeout=30))
+        assert default['bound'] == 100000000 and default['seed'] == 4
+        assert (default['discovered'], default['processed'], default['first_missing']) == (
+            explicit['discovered'], explicit['processed'], explicit['first_missing'])
         # A larger differential check compares full sets, not merely counts.
         reference = run(4, 1000000, configs[0], path)
         for config in configs[1:]:
