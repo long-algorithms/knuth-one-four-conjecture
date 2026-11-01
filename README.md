@@ -1,85 +1,98 @@
 # Knuth's one-four conjecture
 
-Computational investigation of Donald Knuth's conjecture that **every positive
-integer can be expressed using a single 4**, factorials, square roots, and the
-floor (integer-part) operation. This repository explores the equivalent variant
-starting from **3**.
+Computational investigation of Donald Knuth's conjecture that every positive
+integer can be expressed using **one 4**, factorials, square roots, and the floor
+(integer-part) operation. The C++ search starts from **4** by default.
 
-## Historical source
+The program is an exploratory bounded search, **not a proof or a certified
+reachability computation**. Quad-precision factorial logarithms and exponentials
+can still give incorrect floors near integer boundaries. An undiscovered integer
+is not a counterexample to the conjecture.
 
-D. E. Knuth, **"Representing Numbers Using Only One 4,"** *Mathematics
-Magazine* **37** (1964), no. 5, 308–310.
-[DOI: 10.2307/2689238](https://doi.org/10.2307/2689238).
+## Build and run
 
-The name refers to this specific problem, not to Knuth's other conjectures.
-
-## Why starting with 3 is equivalent
-
-Write `T_k(n) = floor((n!)^(1/2^k))`. Exact transformations give
-
-- `3 -> 6 -> 720 -> 50 -> 103 -> 4`, with `k = 0, 0, 10, 5, 8`;
-- `4 -> 24 -> 942 -> 3`, with `k = 0, 3, 12`.
-
-Consequently, either starting integer can generate the other using the allowed
-operations. `tests/exact_representations.py` checks these assertions using only
-integer arithmetic.
-
-## Build
-
-Requires a C++17 compiler supporting GNU `__float128` and `libquadmath`, CMake
-(3.18+), Git (for the initial dependency download), and Python 3 for the tests.
-Tested targets are intended for GNU/Linux with GCC; other toolchains have not
-been validated.
+Requires GCC with `__float128` and `libquadmath`, CMake 3.18+, and Git.
+Python 3 is required when building tests. GNU/Linux is the supported baseline.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-./build/knuth_search --threads 4 --bound 1000 --bitmap-log2 12
+./build/knuth_search --bound 1000000000 --threads 4
 ```
 
-The build uses CMake `FetchContent` to obtain
-[Moodycamel's concurrentqueue](https://github.com/cameron314/concurrentqueue),
-pinned to release **v1.0.5** at commit
-`9afb99746f0f5fc94ac8aef737053ae0481ba8d1`. The first configure requires
-network access; no library source is copied into this repository.
+For a machine-specific build, add `-DKNUTH_ARCH=native` at configuration time.
+Explicit GCC architecture targets such as `znver3` or `knl` are also accepted;
+choose a compiler that supports the target. Do not use `-ffast-math`.
 
-## Current search
+CMake `FetchContent` downloads [Moodycamel's concurrentqueue](https://github.com/cameron314/concurrentqueue),
+pinned to **v1.0.5**, commit `9afb99746f0f5fc94ac8aef737053ae0481ba8d1`.
+The first configuration needs network access. To use an already available source
+checkout offline, pass `-DFETCHCONTENT_SOURCE_DIR_CONCURRENTQUEUE=/path/to/checkout`.
+The dependency is not vendored. The project is MIT-licensed; the dependency
+retains its upstream BSD-2-Clause/Boost licensing.
 
-`src/knuth_search.cpp` is an exploratory, concurrent reachability search. It
-retains the original factorial-logarithm/quad-precision approach, but fixes the
-historical `vector<bool>` data races and the premature worker-exit problem:
+## Options
 
-- atomic bitset for small nonnegative integers;
-- mutex-protected hash set for larger visited integers;
-- outstanding-work accounting for termination, independent of transient queue
-  emptiness;
-- exact integer square root for the descent chain.
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--seed N` | `4` | Starting integer; `3` supports historical comparisons |
+| `--bound N` | `1000000000000000` | Inclusive ceiling for generated integer states; accepts positive `uint64_t` values |
+| `--threads N` | `1` | Worker count, 1–1024 |
+| `--bitmap-log2 N` | `24` | Address bits for the dense visited bitmap, 6–40 |
+| `--batch-size N` | `64` | Maximum dequeued jobs per batch, 1–4096 |
+| `--shards N` | `64` | Power-of-two shard count for the sparse visited set, 1–4096 |
+| `--inline-depth N` | `8` | Maximum successive large states processed without queueing; 0 disables this |
+| `--large-reserve N` | `0` | Initial total reservation for sparse states; otherwise grows on demand |
+| `--dump-reached FILE` | none | Sorted visited-set export for comparison; requires extra memory |
+| `--candidate N` | none | Evaluate one factorial/root edge instead of running a search |
 
-Options: `--threads N`, `--bound N` (candidate ceiling, at most 10^15), and
-`--bitmap-log2 N` (visited bitmap covers `[0, 2^N)`, with N from 6 through 32).
-The default bitmap uses 2 MiB; `--bitmap-log2 32` uses 512 MiB. The search
-prints the first **undiscovered** integer in the bitmap's range and processing
-statistics. It does not prove the first missing number is unreachable.
+The seed must not exceed the bound. The bound is **not** a desired coverage
+limit or a promise that the full search will fit in memory. Arithmetic supports
+up to `18446744073709551615`; practical searches remain time- and memory-limited.
 
-**Important limitation:** Candidate generation uses `lgammaq` and `expq`.
-Quad precision is not interval arithmetic: the program does not certify that
-all floor operations were correctly rounded, and it does not emit independently
-verifiable expression witnesses. Its coverage output is **numerical evidence,
-not a proof**. Rigorous verification is future work.
+A bitmap with 24 address bits uses 2 MiB; 32 uses 512 MiB; 36 uses 8 GiB.
+Allocation is capped at `bound + 1` states when that is smaller. The sparse set
+and work queues require additional memory. Large requested bitmaps can exhaust
+RAM; the 40-bit maximum alone would require 128 GiB.
 
-## Historical implementation
+Output includes the first missing integer **within the bitmap**, unique states,
+processed states, inlined states, memory-capacity statistics, and search time.
+`note=bitmap_range_exhausted` means `first_missing` is only a sentinel/lower
+bound, not a tested missing integer. `large_capacity_bytes` excludes queues,
+metadata, and temporary allocations. The visited-set export is neither a
+resumable checkpoint nor a construction certificate.
 
-`historical/concurrent-quad/quad.cpp` preserves the source from
-[`octonion/knuth/cpp/concurrent/quad`](https://github.com/octonion/knuth/tree/main/cpp/concurrent/quad)
-without algorithmic changes. The original recorded output files are retained
-beside it. The historical program has a data race in `vector<bool>` and workers
-can terminate while work is still outstanding; it is **not** built by default.
-For reproduction only, opt in with `-DKNUTH_BUILD_HISTORICAL=ON`.
+## Algorithm and validation
 
-See [docs/implementation-notes.md](docs/implementation-notes.md).
+The solver retains the original logarithmic factorial/repeated-square-root
+approach. It adds exact small-factorial edges, exact integer square roots,
+atomic bitmap ownership, sharded flat hash sets, tokenized bulk queue operations,
+and bounded inline following of large-state chains. Numerical calls use a
+reentrant log-gamma routine where available, with a protected fallback.
 
-## License
+Tests compare **complete visited sets** against an independent exact-integer
+oracle, vary worker/batch/shard/inline settings, test integer and hash-table
+boundaries, and verify the equivalence of the two historical seeds. They are
+regression checks, not certification of arbitrary large numerical edges.
 
-MIT License, copyright (c) 2022 Christopher D. Long. Moodycamel's separately
-fetched library is distributed under its own BSD/Boost license.
+See [implementation notes](docs/implementation-notes.md) for invariants,
+limitations, and further algorithmic work, and [benchmarks](benchmarks/README.md)
+for measurements and a repeatable scaling script. Your original implementation
+and output files remain unchanged under `historical/concurrent-quad/`.
+
+## Origin and the starting integer
+
+D. E. Knuth, **“Representing Numbers Using Only One 4,”** *Mathematics Magazine*
+**37** (1964), no. 5, 308–310.
+[DOI: 10.2307/2689238](https://doi.org/10.2307/2689238).
+
+Writing `T_k(n) = floor((n!)^(1/2^k))`, exact transformations give
+
+- `3 -> 6 -> 720 -> 50 -> 103 -> 4`, with `k = 0, 0, 10, 5, 8`;
+- `4 -> 24 -> 942 -> 3`, with `k = 0, 3, 12`.
+
+Thus the unrestricted conjectures are equivalent. Very small bounded searches
+need not agree: with ceiling 6, seed 4 reaches `{1,2,4}`, whereas seed 3 reaches
+`{1,2,3,6}`. `tests/exact_representations.py` checks the displayed constructions
+using integer arithmetic.

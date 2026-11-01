@@ -2,14 +2,35 @@ name: Build and test
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   linux:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [release, fallback, sanitizers]
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          options=(-DCMAKE_BUILD_TYPE=Release)
+          if [[ "${{ matrix.config }}" == fallback ]]; then
+            options+=(-DKNUTH_FORCE_QUADMATH=ON)
+          elif [[ "${{ matrix.config }}" == sanitizers ]]; then
+            options=(-DCMAKE_BUILD_TYPE=Debug -DKNUTH_SANITIZERS=ON)
+          fi
+          cmake -S . -B build "${options[@]}"
       - name: Build
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Retain test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ matrix.config }}-${{ github.sha }}
+          retention-days: 7
+          path: build/Testing/Temporary/LastTest.log

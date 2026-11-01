@@ -1,0 +1,109 @@
+{
+  "environment": "AMD EPYC 9V74 virtualized container, 5 exposed CPUs, quota of 4 CPU cores; GCC 14.2.0 -O3; no architecture tuning",
+  "baseline_commit": "5e0aa8279a718b9721360c01126f966c76ac2448",
+  "seed": 3,
+  "bitmap_log2": 24,
+  "new_batch_size": 64,
+  "new_shards": 64,
+  "new_inline_depth": 8,
+  "repeats": 3,
+  "notes": "Wall/RSS from GNU time; medians of three runs. Baseline is the original repository solver; not the historical vector<bool> program. No extrapolation to user workstations.",
+  "results": [
+    {
+      "bound": 100000000,
+      "threads": 1,
+      "baseline_wall_seconds": 0.41,
+      "baseline_rss_kib": 4484,
+      "new_wall_seconds": 0.29,
+      "new_rss_kib": 4244,
+      "new_samples": [
+        {"wall_seconds": 0.26, "user_seconds": 0.26, "system_seconds": 0.0, "rss_kib": 4240},
+        {"wall_seconds": 0.29, "user_seconds": 0.29, "system_seconds": 0.0, "rss_kib": 4364},
+        {"wall_seconds": 0.3, "user_seconds": 0.29, "system_seconds": 0.0, "rss_kib": 4244}
+      ],
+      "discovered": 111048,
+      "first_missing": 3034,
+      "large_states": 16371
+    },
+    {
+      "bound": 100000000,
+      "threads": 4,
+      "baseline_wall_seconds": 0.11,
+      "baseline_rss_kib": 4484,
+      "new_wall_seconds": 0.08,
+      "new_rss_kib": 4364,
+      "new_samples": [
+        {"wall_seconds": 0.08, "user_seconds": 0.3, "system_seconds": 0.0, "rss_kib": 4116},
+        {"wall_seconds": 0.08, "user_seconds": 0.3, "system_seconds": 0.0, "rss_kib": 4372},
+        {"wall_seconds": 0.08, "user_seconds": 0.31, "system_seconds": 0.0, "rss_kib": 4364}
+      ],
+      "discovered": 111048,
+      "first_missing": 3034,
+      "large_states": 16371
+    },
+    {
+      "bound": 1000000000,
+      "threads": 1,
+      "baseline_wall_seconds": 1.35,
+      "baseline_rss_kib": 9060,
+      "new_wall_seconds": 0.96,
+      "new_rss_kib": 6548,
+      "new_samples": [
+        {"wall_seconds": 0.95, "user_seconds": 0.94, "system_seconds": 0.0, "rss_kib": 6548},
+        {"wall_seconds": 1.04, "user_seconds": 1.03, "system_seconds": 0.0, "rss_kib": 6548},
+        {"wall_seconds": 0.96, "user_seconds": 0.96, "system_seconds": 0.0, "rss_kib": 6548}
+      ],
+      "discovered": 393225,
+      "first_missing": 8874,
+      "large_states": 124235
+    },
+    {
+      "bound": 1000000000,
+      "threads": 4,
+      "baseline_wall_seconds": 0.46,
+      "baseline_rss_kib": 8992,
+      "new_wall_seconds": 0.27,
+      "new_rss_kib": 6548,
+      "new_samples": [
+        {"wall_seconds": 0.28, "user_seconds": 1.09, "system_seconds": 0.0, "rss_kib": 6548},
+        {"wall_seconds": 0.25, "user_seconds": 1.02, "system_seconds": 0.0, "rss_kib": 6548},
+        {"wall_seconds": 0.27, "user_seconds": 1.06, "system_seconds": 0.0, "rss_kib": 6548}
+      ],
+      "discovered": 393225,
+      "first_missing": 8874,
+      "large_states": 124235
+    },
+    {
+      "bound": 10000000000,
+      "threads": 1,
+      "baseline_wall_seconds": 4.76,
+      "baseline_rss_kib": 29248,
+      "new_wall_seconds": 3.5,
+      "new_rss_kib": 14100,
+      "new_samples": [
+        {"wall_seconds": 3.56, "user_seconds": 3.55, "system_seconds": 0.01, "rss_kib": 14100},
+        {"wall_seconds": 3.42, "user_seconds": 3.41, "system_seconds": 0.0, "rss_kib": 14100},
+        {"wall_seconds": 3.5, "user_seconds": 3.48, "system_seconds": 0.0, "rss_kib": 14100}
+      ],
+      "discovered": 1347820,
+      "first_missing": 24754,
+      "large_states": 633834
+    },
+    {
+      "bound": 10000000000,
+      "threads": 4,
+      "baseline_wall_seconds": 1.82,
+      "baseline_rss_kib": 29184,
+      "new_wall_seconds": 0.89,
+      "new_rss_kib": 14824,
+      "new_samples": [
+        {"wall_seconds": 0.93, "user_seconds": 3.65, "system_seconds": 0.03, "rss_kib": 14996},
+        {"wall_seconds": 0.87, "user_seconds": 3.43, "system_seconds": 0.01, "rss_kib": 14740},
+        {"wall_seconds": 0.89, "user_seconds": 3.54, "system_seconds": 0.0, "rss_kib": 14824}
+      ],
+      "discovered": 1347820,
+      "first_missing": 24754,
+      "large_states": 633834
+    }
+  ]
+}

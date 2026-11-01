@@ -1,199 +1,270 @@
-// Exploratory search for Knuth's one-four conjecture (equivalent start: 3).
-// This program reports numerical evidence, NOT certified constructions.
-#include <quadmath.h>
+// Exploratory search for Knuth's one-four conjecture. Not a proof certificate.
+#include "knuth/numeric.hpp"
+#include "knuth/visited.hpp"
 #include <concurrentqueue.h>
 
+#include <algorithm>
 #include <atomic>
-#include <cmath>
-#include <cstdint>
+#include <charconv>
+#include <chrono>
 #include <cstdlib>
+#include <exception>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
-#include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 #include <thread>
-#include <unordered_set>
 #include <vector>
 
 namespace {
-
-uint64_t parse_integer(const std::string& value) {
-    std::size_t used = 0;
-    const auto result = std::stoull(value, &used);
-    if (used != value.size()) throw std::invalid_argument("invalid integer: " + value);
-    return static_cast<uint64_t>(result);
-}
-
-// Integer square root, with floating point used only for an initial estimate.
-uint64_t integer_sqrt(uint64_t x) {
-    if (x == 0) return 0;
-    auto r = static_cast<uint64_t>(std::sqrt(static_cast<long double>(x)));
-    while (r + 1 <= x / (r + 1)) ++r;
-    while (r > x / r) --r;
-    return r;
-}
-
-class Visited {
-public:
-    explicit Visited(unsigned bitmap_log2)
-        : limit_(uint64_t{1} << bitmap_log2),
-          size_((limit_ + 63) / 64),
-          words_(new std::atomic<uint64_t>[size_]) {
-        for (std::size_t i = 0; i < size_; ++i)
-            words_[i].store(0, std::memory_order_relaxed);
-    }
-
-    bool insert(uint64_t n) {
-        if (n < limit_) {
-            const uint64_t mask = uint64_t{1} << (n % 64);
-            const auto old = words_[n / 64].fetch_or(mask, std::memory_order_relaxed);
-            return (old & mask) == 0;
-        }
-        std::lock_guard<std::mutex> lock(large_mutex_);
-        return large_.insert(n).second;
-    }
-
-    uint64_t first_missing() const {
-        for (uint64_t n = 1; n < limit_; ++n) {
-            if ((words_[n / 64].load(std::memory_order_relaxed) &
-                 (uint64_t{1} << (n % 64))) == 0) return n;
-        }
-        return limit_; // only a lower bound if the bitmap range is exhausted
-    }
-
-    uint64_t bitmap_limit() const { return limit_; }
-
-private:
-    uint64_t limit_;
-    std::size_t size_;
-    std::unique_ptr<std::atomic<uint64_t>[]> words_;
-    std::mutex large_mutex_;
-    std::unordered_set<uint64_t> large_;
-};
-
+using knuth::u64;
 struct Options {
-    uint64_t bound = 1000000000000000ULL; // historical candidate ceiling
-    unsigned bitmap_log2 = 24;             // 2 MiB by default; 32 -> 512 MiB
+    u64 bound = UINT64_C(1000000000000000);
+    u64 seed = 4;
+    unsigned bitmap_log2 = 24;
     unsigned threads = 1;
+    unsigned batch_size = 64;
+    unsigned shards = 64;
+    unsigned inline_depth = 8;
+    std::size_t large_reserve = 0;
+    u64 candidate = 0;
+    std::string dump_reached;
 };
+
+u64 parse_integer(const std::string& text) {
+    u64 value = 0;
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (text.empty() || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+        throw std::invalid_argument("invalid unsigned integer: " + text);
+    return value;
+}
+
+void usage() {
+    std::cout <<
+        "Usage: knuth_search [options]\n"
+        "  --seed N          Starting integer (default 4; 3 reproduces older searches)\n"
+        "  --bound N         Inclusive candidate ceiling, 1..UINT64_MAX (default 10^15)\n"
+        "  --threads N       Worker count, 1..1024 (default 1)\n"
+        "  --bitmap-log2 N   Bitmap address bits, 6..40 (default 24; 32 uses 512 MiB)\n"
+        "  --batch-size N    Maximum tasks per queue operation, 1..4096 (default 64)\n"
+        "  --inline-depth N  Follow up to N new large successors inline, 0..1024 (default 8)\n"
+        "  --shards N        Power-of-two large-set shard count, 1..4096 (default 64)\n"
+        "  --large-reserve N Initially reserve this many large states (default 0)\n"
+        "  --dump-reached F  Write the sorted visited set after completion (uses memory)\n"
+        "  --candidate N     Evaluate one factorial/root edge instead of searching\n"
+        "  --help            Show this help\n"
+        "Numerical edges are exploratory, not mathematically certified.\n";
+}
 
 Options options_from_args(int argc, char** argv) {
     Options opts;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--help") {
-            std::cout << "Usage: knuth_search [--threads N] [--bound N] [--bitmap-log2 N]\n"
-                         "Computations are exploratory, not mathematically certified.\n";
-            std::exit(0);
+        if (arg == "--help") { usage(); std::exit(0); }
+        if (i + 1 == argc) throw std::invalid_argument("missing value for " + arg);
+        const std::string text = argv[++i];
+        if (arg == "--dump-reached") {
+            if (text.empty()) throw std::invalid_argument("dump path must not be empty");
+            opts.dump_reached = text; continue;
         }
-        if (i + 1 >= argc) throw std::invalid_argument("missing value for " + arg);
-        const auto value = parse_integer(argv[++i]);
-        if (arg == "--threads") {
+        const auto value = parse_integer(text);
+        if (arg == "--bound") {
+            if (!value) throw std::invalid_argument("bound must be positive");
+            opts.bound = value;
+        } else if (arg == "--seed") {
+            if (!value) throw std::invalid_argument("seed must be positive");
+            opts.seed = value;
+        } else if (arg == "--threads") {
             if (value < 1 || value > 1024) throw std::invalid_argument("threads must be 1..1024");
             opts.threads = static_cast<unsigned>(value);
-        } else if (arg == "--bound") {
-            if (value < 6 || value > 1000000000000000ULL)
-                throw std::invalid_argument("bound must be in [6, 10^15]");
-            opts.bound = value;
         } else if (arg == "--bitmap-log2") {
-            if (value < 6 || value > 32) throw std::invalid_argument("bitmap-log2 must be 6..32");
+            if (value < 6 || value > 40) throw std::invalid_argument("bitmap-log2 must be 6..40");
             opts.bitmap_log2 = static_cast<unsigned>(value);
-        } else {
-            throw std::invalid_argument("unknown option: " + arg);
-        }
+        } else if (arg == "--batch-size") {
+            if (value < 1 || value > 4096) throw std::invalid_argument("batch-size must be 1..4096");
+            opts.batch_size = static_cast<unsigned>(value);
+        } else if (arg == "--inline-depth") {
+            if (value > 1024) throw std::invalid_argument("inline-depth must be 0..1024");
+            opts.inline_depth = static_cast<unsigned>(value);
+        } else if (arg == "--shards") {
+            if (!value || value > 4096 || (value & (value - 1)))
+                throw std::invalid_argument("shards must be a power of two in 1..4096");
+            opts.shards = static_cast<unsigned>(value);
+        } else if (arg == "--large-reserve") {
+            if (value > std::numeric_limits<std::size_t>::max() / sizeof(u64))
+                throw std::invalid_argument("large-reserve exceeds addressable storage");
+            opts.large_reserve = static_cast<std::size_t>(value);
+        } else if (arg == "--candidate") {
+            if (!value) throw std::invalid_argument("candidate must be positive");
+            opts.candidate = value;
+        } else throw std::invalid_argument("unknown option: " + arg);
     }
+    if (!opts.candidate && opts.seed > opts.bound)
+        throw std::invalid_argument("seed must not exceed bound");
     return opts;
 }
 
+struct alignas(64) Statistics {
+    u64 processed = 0;
+    u64 discovered = 0;
+    u64 batches = 0;
+    u64 inlined = 0;
+};
+
 class Search {
 public:
-    explicit Search(const Options& options)
-        : options_(options), visited_(options.bitmap_log2), log_bound_(logq(static_cast<__float128>(options.bound))) {
-        visited_.insert(3);
-        if (!queue_.enqueue(uint64_t{3})) throw std::bad_alloc();
-        pending_.store(1, std::memory_order_relaxed);
-        discovered_.store(1, std::memory_order_relaxed);
+    explicit Search(Options options)
+        : options_(std::move(options)),
+          visited_(options_.bitmap_log2, options_.bound, options_.shards, options_.large_reserve),
+          candidate_(options_.bound), stats_(options_.threads) {
+        // The seed must obey the same sqrt-closure invariant as discoveries.
+        // Otherwise, e.g. seed=4/bound=6 misses the valid states 2 and 1.
+        std::vector<u64> initial;
+        for (auto n = options_.seed; visited_.insert(n); n = knuth::integer_sqrt(n))
+            initial.push_back(n);
+        seeded_ = initial.size();
+        pending_.store(seeded_, std::memory_order_relaxed);
+        if (!queue_.enqueue_bulk(initial.data(), initial.size())) throw std::bad_alloc();
     }
 
     void run() {
+        const auto started = std::chrono::steady_clock::now();
         std::vector<std::thread> workers;
         workers.reserve(options_.threads);
-        for (unsigned i = 0; i < options_.threads; ++i)
-            workers.emplace_back([this] { worker(); });
+        try {
+            for (unsigned i = 0; i < options_.threads; ++i)
+                workers.emplace_back([this, i] {
+                    try { worker(stats_[i]); }
+                    catch (...) {
+                        std::lock_guard<std::mutex> lock(error_mutex_);
+                        if (!error_) error_ = std::current_exception();
+                        aborted_.store(true, std::memory_order_release);
+                    }
+                });
+        } catch (...) {
+            aborted_.store(true, std::memory_order_release);
+            for (auto& worker : workers) worker.join();
+            throw;
+        }
         for (auto& worker : workers) worker.join();
+        elapsed_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        if (error_) std::rethrow_exception(error_);
     }
 
     void report() const {
+        u64 discovered = seeded_, processed = 0, batches = 0, inlined = 0;
+        for (const auto& stat : stats_) {
+            discovered += stat.discovered; processed += stat.processed; batches += stat.batches; inlined += stat.inlined;
+        }
+        if (discovered != processed || pending_.load(std::memory_order_relaxed) != 0)
+            throw std::runtime_error("incomplete search: outstanding-work invariant failed");
+        if (!options_.dump_reached.empty()) {
+            auto values = visited_.snapshot();
+            std::sort(values.begin(), values.end());
+            std::ofstream output(options_.dump_reached);
+            if (!output) throw std::runtime_error("cannot open " + options_.dump_reached);
+            for (auto n : values) output << n << '\n';
+            output.close();
+            if (!output) throw std::runtime_error("cannot write " + options_.dump_reached);
+        }
         const auto first = visited_.first_missing();
-        std::cout << "first_missing=" << first
-                  << " bitmap_limit=" << visited_.bitmap_limit()
-                  << " discovered=" << discovered_.load(std::memory_order_relaxed)
-                  << " processed=" << processed_.load(std::memory_order_relaxed)
-                  << " threads=" << options_.threads << "\n";
-        if (first == visited_.bitmap_limit())
-            std::cout << "note=bitmap_range_exhausted\n";
+        std::cout << "first_missing=" << first << " bitmap_limit=" << visited_.bitmap_limit()
+                  << " discovered=" << discovered << " processed=" << processed
+                  << " seed=" << options_.seed << " bound=" << options_.bound
+                  << " threads=" << options_.threads << " batch_size=" << options_.batch_size
+                  << " shards=" << options_.shards << " batches=" << batches
+                  << " inline_depth=" << options_.inline_depth << " inlined=" << inlined << '\n'
+                  << "bitmap_bytes=" << visited_.bitmap_bytes()
+                  << " large_states=" << visited_.large_count()
+                  << " large_capacity_bytes=" << visited_.large_capacity_bytes()
+                  << " search_seconds=" << std::fixed << std::setprecision(6) << elapsed_ << '\n';
+        if (first == visited_.bitmap_limit()) std::cout << "note=bitmap_range_exhausted\n";
+        #ifdef KNUTH_HAVE_LGAMMAF128_R
+        std::cout << "numerical_backend=glibc_lgammaf128_r\n";
+#else
+        std::cout << "numerical_backend=locked_lgammaq\n";
+#endif
         std::cout << "status=uncertified_numerical_search\n";
     }
 
 private:
-    // Compute floor((m!)^(1 / 2^p)) with lgammaq/expq. p=0 follows
-    // the original code's round-to-nearest convention. Rounding errors
-    // near integral boundaries are not yet certified.
-    uint64_t candidate(uint64_t m) const {
-        const __float128 x = lgammaq(static_cast<__float128>(m) + 1.0Q);
-        unsigned p = 0;
-        if (x > log_bound_) {
-            const __float128 needed = ceilq(log2q(x / log_bound_));
-            p = static_cast<unsigned>(needed > 0 ? needed : 0);
-        }
-        const __float128 exponent = x / ldexpq(1.0Q, static_cast<int>(p));
-        const __float128 y = expq(exponent);
-        const __float128 z = p == 0 ? roundq(y) : floorq(y);
-        // A finite limit prevents casting outside the integer range.
-        if (!finiteq(z) || z < 1 || z > static_cast<__float128>(options_.bound))
-            throw std::runtime_error("candidate outside configured numerical bound");
-        return static_cast<uint64_t>(z);
-    }
-
-    void worker() {
-        uint64_t m;
-        for (;;) {
-            if (!queue_.try_dequeue(m)) {
-                // try_dequeue may fail spuriously: outstanding work is the
-                // completion criterion, not the apparent queue emptiness.
+    void worker(Statistics& stat) {
+        moodycamel::ProducerToken producer(queue_);
+        moodycamel::ConsumerToken consumer(queue_);
+        if (!producer.valid()) throw std::bad_alloc();
+        std::vector<u64> input(options_.batch_size), output;
+        output.reserve(static_cast<std::size_t>(options_.batch_size) * 8);
+        unsigned idle = 0;
+        while (!aborted_.load(std::memory_order_acquire)) {
+            const auto count = queue_.try_dequeue_bulk(consumer, input.data(), input.size());
+            if (!count) {
                 if (pending_.load(std::memory_order_acquire) == 0) return;
-                std::this_thread::yield();
+                // Short initial yields avoid sleeping through small bursts;
+                // back off on prolonged starvation rather than burning a core.
+                if (++idle < 64) std::this_thread::yield();
+                else std::this_thread::sleep_for(std::chrono::microseconds(50));
                 continue;
             }
-            uint64_t n = candidate(m);
-            while (visited_.insert(n)) {
-                // Increase outstanding count BEFORE publishing the task.
-                pending_.fetch_add(1, std::memory_order_acq_rel);
-                if (!queue_.enqueue(n)) std::terminate(); // OOM is unrecoverable here
-                discovered_.fetch_add(1, std::memory_order_relaxed);
-                n = integer_sqrt(n);
+            idle = 0;
+            output.clear();
+            for (std::size_t i = 0; i < count; ++i) {
+                auto m = input[i];
+                unsigned depth = 0;
+                for (;;) {
+                    auto n = candidate_(m).value;
+                    u64 follow = 0;
+                    // The first inserter owns the sqrt descent. Large states
+                    // form a functional graph once the bitmap covers sqrt(B).
+                    // Follow one new large successor without a queue round trip;
+                    // publish the other children and cap depth for load balance.
+                    while (visited_.insert(n)) {
+                        ++stat.discovered;
+                        if (!follow && n >= visited_.bitmap_limit() && depth < options_.inline_depth)
+                            follow = n;
+                        else output.push_back(n);
+                        n = knuth::integer_sqrt(n);
+                    }
+                    ++stat.processed;
+                    if (!follow) break;
+                    m = follow; ++depth; ++stat.inlined;
+                }
             }
-            processed_.fetch_add(1, std::memory_order_relaxed);
-            pending_.fetch_sub(1, std::memory_order_acq_rel);
+            if (!output.empty()) {
+                // Count unpublished work before making it visible. Input tasks
+                // cover inline descendants too, and stay outstanding until the
+                // entire batch has finished and all queued children are published.
+                pending_.fetch_add(output.size(), std::memory_order_acq_rel);
+                if (!queue_.enqueue_bulk(producer, output.data(), output.size())) throw std::bad_alloc();
+            }
+            ++stat.batches;
+            pending_.fetch_sub(count, std::memory_order_acq_rel);
         }
     }
-
     Options options_;
-    Visited visited_;
-    __float128 log_bound_;
-    moodycamel::ConcurrentQueue<uint64_t> queue_;
-    std::atomic<uint64_t> pending_{0};
-    std::atomic<uint64_t> discovered_{0};
-    std::atomic<uint64_t> processed_{0};
+    knuth::Visited visited_;
+    knuth::CandidateGenerator candidate_;
+    moodycamel::ConcurrentQueue<u64> queue_;
+    alignas(64) std::atomic<u64> pending_{0};
+    alignas(64) std::atomic<bool> aborted_{false};
+    std::vector<Statistics> stats_;
+    u64 seeded_ = 0;
+    double elapsed_ = 0;
+    std::mutex error_mutex_;
+    std::exception_ptr error_;
 };
-
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        Search search(options_from_args(argc, argv));
+        auto options = options_from_args(argc, argv);
+        if (options.candidate) {
+            const auto result = knuth::CandidateGenerator(options.bound)(options.candidate);
+            std::cout << "candidate=" << result.value << " roots=" << result.roots << '\n';
+            return 0;
+        }
+        Search search(std::move(options));
         search.run();
         search.report();
     } catch (const std::exception& ex) {
