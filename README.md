@@ -30,8 +30,14 @@ for a longer search, for example:
 ```
 
 For a machine-specific build, add `-DKNUTH_ARCH=native` at configuration time.
-Explicit GCC architecture targets such as `znver3` or `knl` are also accepted;
-choose a compiler that supports the target. Do not use `-ffast-math`.
+On an Intel Xeon Phi (Knights Landing), a fresh CMake configuration automatically
+selects **G++ 14** and `-march=knl`. GCC 15 removed Xeon Phi target support.
+Install `g++-14` for this configuration; other machines keep their normal
+compiler selection. Explicit `CXX`, `-DCMAKE_CXX_COMPILER`, and
+`-DKNUTH_ARCH` settings take precedence. Since CMake caches the compiler,
+use a fresh build directory when switching toolchains. You can also explicitly
+request a Xeon Phi cross-build with `-DKNUTH_ARCH=knl`.
+Do not use `-ffast-math`.
 
 CMake `FetchContent` downloads [Moodycamel's concurrentqueue](https://github.com/cameron314/concurrentqueue),
 pinned to **v1.0.5**, commit `9afb99746f0f5fc94ac8aef737053ae0481ba8d1`.
