@@ -1,10 +1,47 @@
 cmake_minimum_required(VERSION 3.18)
+
+# Select the compiler before project(): CMake caches it on first configure.
+set(KNUTH_ARCH "" CACHE STRING "Optional -march target, e.g. native, znver3, or knl")
+set(_knuth_native_xeon_phi FALSE)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_TOOLCHAIN_FILE AND EXISTS "/proc/cpuinfo")
+  file(STRINGS "/proc/cpuinfo" _knuth_cpu_model REGEX "^model name" LIMIT_COUNT 1)
+  if(_knuth_cpu_model MATCHES "Xeon.*Phi")
+    set(_knuth_native_xeon_phi TRUE)
+  endif()
+endif()
+
+# GCC 15 removed -march=knl and -march=knm. Prefer GCC 14 for native Xeon Phi
+# and explicitly requested KNL/KNM targets, without overriding CXX, toolchains,
+# or a compiler selected in an existing CMake cache.
+if((_knuth_native_xeon_phi OR KNUTH_ARCH STREQUAL "knl" OR KNUTH_ARCH STREQUAL "knm")
+   AND NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX} AND NOT CMAKE_TOOLCHAIN_FILE)
+  find_program(_knuth_gxx14 NAMES g++-14)
+  if(NOT _knuth_gxx14)
+    message(FATAL_ERROR "Xeon Phi builds default to g++-14, which is not installed. Install g++-14, or explicitly select a compatible compiler using CXX or -DCMAKE_CXX_COMPILER.")
+  endif()
+  set(CMAKE_CXX_COMPILER "${_knuth_gxx14}" CACHE FILEPATH "C++ compiler for Xeon Phi")
+  message(STATUS "Selecting GCC 14 for Xeon Phi: ${_knuth_gxx14}")
+endif()
+
 project(knuth_one_four_conjecture LANGUAGES CXX)
+
+# Native KNL builds are tuned by default when a supporting compiler is used.
+# An explicit KNUTH_ARCH choice always takes precedence.
+if(_knuth_native_xeon_phi AND NOT KNUTH_ARCH
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+  set(KNUTH_ARCH "knl" CACHE STRING "Optional -march target, e.g. native, znver3, or knl" FORCE)
+  message(STATUS "Detected Xeon Phi: enabling -march=knl")
+endif()
+if((KNUTH_ARCH STREQUAL "knl" OR KNUTH_ARCH STREQUAL "knm")
+   AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+  message(FATAL_ERROR "GCC 15+ removed -march=knl and -march=knm. Use g++-14 and a fresh build directory.")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON) # GNU __float128 / __uint128_t
-set(KNUTH_ARCH "" CACHE STRING "Optional -march target, e.g. native, znver3, or knl")
 option(KNUTH_SANITIZERS "Enable address and undefined-behavior sanitizers" OFF)
 option(KNUTH_FORCE_QUADMATH "Test the mutex-protected lgammaq fallback" OFF)
 

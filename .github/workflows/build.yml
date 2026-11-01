@@ -27,6 +27,18 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Xeon Phi compile-only smoke test
+        if: matrix.config == 'release'
+        shell: bash
+        run: |
+          if ! command -v g++-14 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y g++-14
+          fi
+          cmake -S . -B build-knl -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DKNUTH_ARCH=knl
+          grep -Eq '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=.*/g[+][+]-14$' build-knl/CMakeCache.txt
+          # Compile, but do not execute KNL-specific binaries on the CI host.
+          cmake --build build-knl --parallel 2
       - name: Retain test log
         if: always()
         uses: actions/upload-artifact@v4
