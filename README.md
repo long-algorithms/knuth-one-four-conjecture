@@ -93,8 +93,9 @@ and output files remain unchanged under `historical/concurrent-quad/`.
 
 The original [`maxout.txt`](historical/concurrent-quad/maxout.txt) records
 **419,916,105** as the **first integer not discovered** by the historical
-concurrent quad-precision search, starting from 3. Its reported wall time was
-`921m44.615s` (15 h 21 min 44.615 s). Thus the run reported discovering
+concurrent quad-precision search, starting from 3. **This run was performed
+on an Intel Xeon Phi system.** Its reported wall time was `921m44.615s`
+(15 h 21 min 44.615 s). Thus the run reported discovering
 all positive integers below 419,916,105 within that particular search.
 
 This is the largest first-undiscovered value in the preserved historical run
