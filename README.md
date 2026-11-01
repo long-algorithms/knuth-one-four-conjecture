@@ -86,8 +86,8 @@ regression checks, not certification of arbitrary large numerical edges.
 
 See [implementation notes](docs/implementation-notes.md) for invariants,
 limitations, and further algorithmic work, and [benchmarks](benchmarks/README.md)
-for measurements and a repeatable scaling script. Your original implementation
-and output files remain unchanged under `historical/concurrent-quad/`.
+for measurements and a repeatable scaling script. The original implementation
+and output files are preserved in `historical/concurrent-quad/`.
 
 ## Largest recorded historical run
 
@@ -95,10 +95,9 @@ The original [`maxout.txt`](historical/concurrent-quad/maxout.txt) records
 **419,916,105** as the **first integer not discovered** by the historical
 concurrent quad-precision search, starting from 3. **This run was performed
 on an Intel Xeon Phi system.** Its reported wall time was `921m44.615s`
-(15 h 21 min 44.615 s). Thus the run reported discovering
-all positive integers below 419,916,105 within that particular search.
-
-This run used the original, uncertified and unformalized implementation.
+(15 h 21 min 44.615 s). The run used the original, uncertified and
+unformalized implementation and reported discovering all positive integers
+below 419,916,105.
 
 ## Origin and the starting integer
 
