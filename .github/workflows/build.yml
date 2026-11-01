@@ -34,3 +34,21 @@ jobs:
           name: tests-${{ matrix.config }}-${{ github.sha }}
           retention-days: 7
           path: build/Testing/Temporary/LastTest.log
+  knl-cross-build:
+    # Compile the KNL code path with GCC 14 without running KNL instructions
+    # on a GitHub-hosted x86-64 runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GCC 14 if needed
+        run: |
+          if ! command -v g++-14 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y g++-14
+          fi
+      - name: Configure KNL build
+        run: |
+          cmake -S . -B build-knl -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DKNUTH_ARCH=knl
+          grep -Eq '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=.*/g\\+\\+-14$' build-knl/CMakeCache.txt
+      - name: Compile (do not execute KNL instructions)
+        run: cmake --build build-knl --parallel 2
